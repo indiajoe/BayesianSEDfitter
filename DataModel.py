@@ -22,10 +22,10 @@ class DataModel():
         """ Loads Robitaille's Grid Model for the input python list of FilterBands and corresponding list of Appertures Index
         Apperture Index Numbers are to be given from aperture_list.ascii corresponding to each filter"""
 
-        FilterFiles = {'BV':'BV_y_full.ascii','BR':'BR_y_full.ascii','BI':'BI_y_full.ascii','2MASSJ':'2J_y_full.ascii','2MASSH':'2H_y_full.ascii','2MASSK':'2K_y_full.ascii'}
+        FilterFiles = {'BV':'BV_y_full.ascii','BR':'BR_y_full.ascii','BI':'BI_y_full.ascii','2MASSJ':'2J_y_full.ascii','2MASSH':'2H_y_full.ascii','2MASSK':'2K_y_full.ascii','IRAC3':'I3_y_full.ascii','MIPS1':'M1_y_full.ascii'}
 
         # Central wavelength from http://caravan.astro.wisc.edu/protostars/repository.php
-        lambdaDic = {'BV':0.55,'BR':0.64,'BI':0.79,'2MASSJ':1.235,'2MASSH':1.662,'2MASSK':2.159}
+        lambdaDic = {'BV':0.55,'BR':0.64,'BI':0.79,'2MASSJ':1.235,'2MASSH':1.662,'2MASSK':2.159,'IRAC3':5.731,'MIPS1':23.68}
 
         # Load and interpolate the extinction law
         extlaw = np.loadtxt('extinction_law.ascii')
@@ -168,14 +168,27 @@ class DataModel():
         # Calculate the extinction correction
         ExtCorrection = np.power(10,-0.4*Av*self.K_lambdaByK_v)
 
-        # Calculate a linear interpolation of k nearest neigbours
-        NoOfNeigh=15
-        d,i=self.NDdataTree.query(Parameters,k=NoOfNeigh)
-#        print zip(d,i) # DEBUG...
-        #        print self.RawParameterTable[i,:]
-        ParMatrix = np.hstack([np.ones((NoOfNeigh,1)),self.ParameterTable[i,:]])
-        Coeffs = np.linalg.lstsq(ParMatrix,self.FluxData[i,:])[0]
-        return i,np.dot(np.concatenate(([1],Parameters)),Coeffs) * ExtCorrection
+        # Calculate a linear interpolation of linearly independent k nearest neigbours
+        NoOfReqNeigh = 15 # Number of required linearly independent neighbours = No: of Dimensions + 1
+        factor = 2  # Multiplicate factor of the required number to query from KDtree
+        ObtainedEnough = False
+        Indeps = [0,1] # First two will be definitly independent
+        candidate = 2
+        while len(Indeps) < NoOfReqNeigh :
+            d,index=self.NDdataTree.query(Parameters,k=NoOfReqNeigh*factor)
+#            print( NoOfReqNeigh*factor,Indeps)
+            #print zip(d,i) # DEBUG...
+            while candidate < NoOfReqNeigh*factor :
+                if np.linalg.matrix_rank(np.hstack([np.ones((len(Indeps)+1,1)),
+                                                    self.ParameterTable[list(index[Indeps])+[index[candidate]],:]])) == len(Indeps)+1:
+                    Indeps.append(candidate)
+                    if len(Indeps) == NoOfReqNeigh: break
+                candidate += 1
+            factor += 1
+
+        ParMatrix = np.hstack([np.ones((NoOfReqNeigh,1)),self.ParameterTable[index[Indeps],:]])
+        Coeffs = np.linalg.lstsq(ParMatrix,self.FluxData[index[Indeps],:])[0]
+        return index[Indeps],np.dot(np.concatenate(([1],Parameters)),Coeffs) * ExtCorrection
 
     def GetRadTemp(self,Age,Mass):
         """ Retruns Stellar modle consistant Radius and temperature for given Mass and Age """
@@ -189,6 +202,23 @@ class DataModel():
         # Radius = scipy.interpolate.bisplev(Age, Mass, self.tck_Rad)
         # Temp = scipy.interpolate.bisplev(Age, Mass, self.tck_Temp)
         return Radius, Temp
+
+
+
+    def ConvertRealToScaled(self,param,value):
+        """ Converts the real value to scaled value which is used in montecarlo model """
+        if self.MinMaxLimitsLog[param]['log']:
+            value = np.log10(value)
+        return (value-self.MinMaxLimitsLog[param]['min'])/(self.MinMaxLimitsLog[param]['max']-self.MinMaxLimitsLog[param]['min'])
+    
+    def ConvertScaledToReal(self,param,value):
+        """ Converts the real value to scaled value which is used in montecarlo model """
+        value = value*(self.MinMaxLimitsLog[param]['max']-self.MinMaxLimitsLog[param]['min']) + self.MinMaxLimitsLog[param]['min']
+        if self.MinMaxLimitsLog[param]['log']:
+            value = 10**value
+        return value
+    
+
 
     def PlotPointsOnGrid(self,PointsArray):
         """ Plots NxD parameter points on grid by taking two parameter pairs each """

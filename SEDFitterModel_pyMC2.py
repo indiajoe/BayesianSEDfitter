@@ -5,8 +5,8 @@ import pymc as pm
 import scipy.interpolate
 from DataModel import DataModel
 
-FluxBands = ['BV','BR','BI','2MASSJ','2MASSH','2MASSK']
-Appertures = [23,23,23,23,23,23]
+FluxBands = ['BV','BR','BI','2MASSJ','2MASSH','2MASSK','IRAC3','MIPS1']
+Appertures = [23,23,23,23,23,23,23,23]
 
 SEDModel = DataModel(FluxBands,Appertures)  #Load the SED model
 
@@ -21,22 +21,6 @@ T_lam = ObservedDataSigma *np.sqrt((T_nu -2.0)/T_nu)
 
 print('Observed: ',ObservedData)
 print('ObsError: ',ObservedDataSigma)
-
-
-
-def ConvertRealToScaled(param,value):
-    """ Converts the real value to scaled value which is used in montecarlo model """
-    if SEDModel.MinMaxLimitsLog[param]['log']:
-        value = np.log10(value)
-    return (value-SEDModel.MinMaxLimitsLog[param]['min'])/(SEDModel.MinMaxLimitsLog[param]['max']-SEDModel.MinMaxLimitsLog[param]['min'])
-    
-def ConvertScaledToReal(param,value):
-    """ Converts the real value to scaled value which is used in montecarlo model """
-    value = value*(SEDModel.MinMaxLimitsLog[param]['max']-SEDModel.MinMaxLimitsLog[param]['min']) + SEDModel.MinMaxLimitsLog[param]['min']
-    if SEDModel.MinMaxLimitsLog[param]['log']:
-        value = 10**value
-    return value
-    
 
 
 # Compile and keep the Theano functions for each parameter in the following dictionary
@@ -87,7 +71,7 @@ def upperRenv(age=lTs,mass=lMs):
     Rnot = (StarTemp/30.0)**2.5 * StarRad /2
     ubound = max(min(10**5,4*Rnot),10**3)
     #Convert to our scaled numbers between 1 and 0
-    return ConvertRealToScaled('lRenv',ubound)
+    return SEDModel.ConvertRealToScaled('lRenv',ubound)
 
 @pm.deterministic(plot=False)
 def lowerRenv(age=lTs,mass=lMs):
@@ -96,7 +80,7 @@ def lowerRenv(age=lTs,mass=lMs):
     Rnot = (StarTemp/30.0)**2.5 * StarRad /2
     lbound = max(0.9*10**3,Rnot/4.0)  # 0.9 factor to take into considereaciton of no envelope models
     #Convert to our scaled numbers between 1 and 0
-    return ConvertRealToScaled('lRenv',lbound)
+    return SEDModel.ConvertRealToScaled('lRenv',lbound)
 
 #upperRenv,lowerRenv = GetRenvUpperLowerBounds(lTs,lMs)
 lRenv = pm.Uniform('lRenv',upper= upperRenv,lower= lowerRenv)  # Log(R_env)
@@ -119,8 +103,8 @@ lRdo = pm.Uniform('lRdo',upper= upperlRdo, lower= lowerlRdo)  # Log(R_disc_out)
 @pm.deterministic(plot=False)
 def upperlRdi(val=lRdo):
     """ Returns the upper limit as the Disc outer radius """
-    RealValue = ConvertScaledToReal('lRdo',val)
-    return ConvertRealToScaled('lRdi',RealValue)
+    RealValue = SEDModel.ConvertScaledToReal('lRdo',val)
+    return SEDModel.ConvertRealToScaled('lRdi',RealValue)
 
 lowerlRdi = pm.Deterministic(eval=GetUpperLowerBoundsFdic['lRdi'][1],name='lowerlRdi',parents={'lTs':lTs},doc='down')
 lRdi = pm.Uniform('lRdi',upper= upperlRdi, lower= lowerlRdi)  # Log(R_disc_in)
@@ -157,8 +141,8 @@ upperlroCav = pm.Deterministic(eval=GetUpperLowerBoundsFdic['lroCav'][0],name='u
 @pm.deterministic(plot=False)
 def lowerlroCav(val=lroAmp,uplimit=upperlroCav):
     """ Returns the lower limit as the Ambient density """
-    RealValue = ConvertScaledToReal('lroAmp',val)
-    ScaledValue = ConvertRealToScaled('lroCav',RealValue)
+    RealValue = SEDModel.ConvertScaledToReal('lroAmp',val)
+    ScaledValue = SEDModel.ConvertRealToScaled('lroCav',RealValue)
     if ScaledValue > uplimit:  #This can happen in case of no envelope situations
         ScaledValue = 0.9 * uplimit  #Setting the lower limit to a value slightly less than upper limit
 #        print('lroCav lowlimit:',ScaledValue)  #Debuggg
